@@ -1,0 +1,28 @@
+
+
+# training func
+__main__.train_model.stamp_size = 128
+__main__.train_model.ds9_factor = 2
+__main__.train_model.n_classes = 2
+__main__.train_model.N_colors = 1
+__main__.train_model.channels = [32, 64, 128, 256, 512, 1024]
+__main__.train_model.block_size = 2
+__main__.train_model.batch_size = 128
+__main__.train_model.train_slice = 0.95
+__main__.train_model.eval_slice = 0.99
+__main__.train_model.grad_clip_value = 1
+__main__.train_model.training_epochs = 50
+__main__.train_model.log_metric_frequency = 5
+__main__.train_model.plot_frequency = 50
+__main__.train_model.save_weights_epochs = 1
+__main__.train_model.learning_rate_schedule = 'exp_decay'
+__main__.train_model.init_lr = 1e-4
+__main__.train_model.data_suffix = ""
+__main__.train_model.model_code_file = "/home/hbretonn/clumps/unet_clumps/architectures/unet.py"
+__main__.train_model.comet_project_name = "Unet_clumps-detection"
+__main__.train_model.comet_disabled = False
+__main__.train_model.comet_experiment_key = ""
+
+
+losses.weighted_MSE_with_gals.bckg_weight = 1
+losses.weighted_MSE_with_gals.galaxy_weight = 1
