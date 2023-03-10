@@ -100,28 +100,28 @@ def inspect_clumps_creation(original_field, clumpy_field,
     zoom_stamp_galaxy = zoom(galaxy_stamp, size_stamp, s_zoom)
     segmap_zoom = crop(segmap, gal_x, gal_y, s_zoom)
 
-    ax[1, 0].imshow(zoom_stamp_galaxy, cmap='flag')#, origin='lower')
+    ax[1, 0].imshow(zoom_stamp_galaxy)#, origin='lower')
     ax[1, 0].set_title('added galaxy (no clumps)')
 
     zoom_stamp_gal_clump = zoom(clumpy_stamp, 3*size_stamp, s_zoom)
-    ax[1, 1].imshow(zoom_stamp_gal_clump, cmap='flag')#, origin='lower')
+    ax[1, 1].imshow(zoom_stamp_gal_clump)#, origin='lower')
     ax[1, 1].set_title('added galaxy (with clumps)')
 
     clumps_flux = 0
     s_box = 10
 
-#     ''' Plot the diff and the seg_map'''
+    ''' Plot the diff and the seg_map'''
 #     clumps_only = zoom_stamp_gal_clump - zoom_stamp_galaxy
 #     ax[2, 0].imshow(clumps_only +
 #                     np.random.normal(0, 0.0074, (s_zoom, s_zoom)),
 #                     cmap='bone')#, origin='lower')
 
-#     for i in range(n_clumps):
-#         # print(first_clump_id+i-1)
-#         clump_y = clump_cat['y_off'][first_clump_id+i]
-#         clump_x = clump_cat['x_off'][first_clump_id+i]
-#         clumps_flux += clump_cat['flux'][first_clump_id+i]
-#         plot_box_from_center(ax[2, 0], clump_x, clump_y, s_zoom, s_box)
+    for i in range(n_clumps):
+        # print(first_clump_id+i-1)
+        # clump_y = clump_cat['y_off'][first_clump_id+i]
+        # clump_x = clump_cat['x_off'][first_clump_id+i]
+        clumps_flux += clump_cat['flux'][first_clump_id+i]
+        # plot_box_from_center(ax[2, 0], clump_x, clump_y, s_zoom, s_box)
 
 #     if segmap:
 
@@ -130,10 +130,12 @@ def inspect_clumps_creation(original_field, clumpy_field,
 #     ax[2, 1].imshow(segmap_zoom, cmap='bone')
 
     title = f'{n_clumps} clumps, for a total of' + \
-            f'{np.round(clumps_flux, 4)},' + \
-            f'i.e. {np.round(clumps_flux/gal_flux * 100, 1)}' +\
+            f'{np.round(clumps_flux, 6)},' + \
+            f' gal of {np.round(gal_flux, 6)},' + \
+            f'i.e. {np.round(clumps_flux/gal_flux * 100, 5)}' +\
             '% of the total flux'
     ax[1, 1].set_title(title)
+    ax[2, 1].set_title(f'max seg map: {np.max(segmap_zoom[:, :, 0])}')
 
     ax[2, 0].set_title('clumps only with noise')
 

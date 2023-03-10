@@ -1,3 +1,5 @@
+import os
+os.environ['PATH'] = '/home/hbretonn/morpheus/big-morpheus_JADES/morpheus_env/lib/python3.8/:' + os.environ['PATH']
 from architectures.unet import UNet
 import numpy as np
 from astropy.io import fits
@@ -25,13 +27,11 @@ def config_str_to_dict(config_str: str) -> dict:
 
 @gin.configurable()
 def train_model(stamp_size: int,
-                ds9_factor: int,
                 n_classes: int,
                 N_colors: int,
                 channels: list,
                 block_size: int,
                 batch_size: int,
-                data_suffix: str,
                 train_slice: float,
                 eval_slice: float,
                 training_epochs: int,
@@ -41,10 +41,12 @@ def train_model(stamp_size: int,
                 grad_clip_value: float,
                 learning_rate_schedule: str,
                 init_lr: float,
+                band,
                 comet_experiment_key,
                 comet_project_name,
                 model_code_file,
                 comet_disabled,
+                last_activation,
                 ):
 
     experiment = comet_utils.setup_experiment(
@@ -57,31 +59,33 @@ def train_model(stamp_size: int,
 
     '''reading training data'''
 
-    img_path = f'./data/training_images{data_suffix}/'
-    seg_path = f'./data/training_segmaps{data_suffix}/'
+    img_path = f'./data/training_images_{band}/'
+    seg_path = f'./data/training_segmaps_{band}/'
     imList = glob.glob(f"{img_path}*.fits")
     checkpoint_path = f'models/{experiment.get_key()}/'
     N = len(imList)
     imgs = np.zeros((N, stamp_size, stamp_size, N_colors)).astype('float32')
     segs = np.zeros((N, stamp_size, stamp_size, 2)).astype('float32')
 
-    for i in range(N):
-        imgs[i, :, :, 0] = ds9_scaling(fits.open(f'{img_path}train_img_{i}.fits')[0].data, a=tf.cast(ds9_factor, tf.float64))
-        segs[i, :, :, :] = fits.open(f'{seg_path}train_seg_{i}.fits')[0].data
+    start = 0 #1005
+    for i, idx in enumerate(np.arange(start, start+N)):
+        # imgs[i, :, :, 0] = ds9_scaling(fits.open(f'{img_path}train_img_{idx}.fits')[0].data)
+        imgs[i, :, :, 0] = fits.open(f'{img_path}train_img_{idx}.fits')[0].data
+        segs[i, :, :, :] = fits.open(f'{seg_path}train_seg_{idx}.fits')[0].data
 
-    fig, ax = plt.subplots(20, 2, figsize=(10, 40))
-    for i in range(20):
-        ax[i, 0].imshow(imgs[i, :, :, 0])
-        ax[i, 1].imshow(segs[i, :, :, 0])
+    # fig, ax = plt.subplots(20, 2, figsize=(10, 40))
+    # for i in range(20):
+    #     ax[i, 0].imshow(imgs[i, :, :, 0])
+    #     ax[i, 1].imshow(segs[i, :, :, 0])
 
-    plt.savefig('inputs.png')
+    # plt.savefig('inputs.png')
 
     train_slice = int(train_slice * imgs.shape[0])
     eval_slice = int(eval_slice * imgs.shape[0])
     steps_per_epoch = int(train_slice / batch_size)
 
-    train_data = tf.data.Dataset.from_tensor_slices((imgs[:train_slice],
-                                                     segs[:train_slice]))
+    train_data = tf.data.Dataset.from_tensor_slices((imgs[0:train_slice],
+                                                     segs[0:train_slice]))
     train_data = train_data.shuffle(100000, reshuffle_each_iteration=True)
     train_data = train_data.batch(batch_size)
     train_data = train_data.prefetch(tf.data.experimental.AUTOTUNE)
@@ -98,21 +102,31 @@ def train_model(stamp_size: int,
 
     if learning_rate_schedule == 'exp_decay':
         schedule = tf.keras.optimizers.schedules.ExponentialDecay
-        lr_schedule = schedule(init_lr,
-                               decay_steps=steps_per_epoch*training_epochs,
-                               decay_rate=0.02)
-        optimizer = tf.keras.optimizers.Adam(lr_schedule,
-                                             clipvalue=grad_clip_value)
+        lr_schedule1 = schedule(init_lr*10000,
+                                decay_steps=steps_per_epoch*training_epochs,
+                                decay_rate=0.02)
+        lr_schedule2 = schedule(init_lr,
+                                decay_steps=steps_per_epoch*training_epochs,
+                                decay_rate=0.02)
+
+        optimizers = [tf.keras.optimizers.Adam(lr_schedule1),
+                      tf.keras.optimizers.Adam(lr_schedule2,
+                                               clipvalue=grad_clip_value)]
+
+        # optimizer = tf.keras.optimizers.Adam(lr_schedule,
+                                            #  clipvalue=grad_clip_value)
     elif learning_rate_schedule == 'cst':
-        optimizer = tf.keras.optimizers.Adam(init_lr)
+        optimizers = [tf.keras.optimizers.Adam(init_lr*1000),
+                      tf.keras.optimizers.Adam(init_lr)]
 
     ''' Create the model '''
     model = UNet((stamp_size, stamp_size, 1),
                  channels,
                  n_classes,
                  block_size,
+                 last_activation,
                  checkpoint_path,
-                 optimizer,
+                 optimizers,
                  experiment)
 
     model.print_models('models_summary/')

@@ -5,14 +5,14 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.visualization import ZScaleInterval
 from scipy.stats import multivariate_normal
-from scipy.signal import convolve as scipy_convolve
+import sys
 
 
-def mag2flux(mag, zp=28.02):
+def mag2flux(mag, zp=28.3):
     return 10**(-0.4*(mag-zp))
 
 
-def flux2mag(flux, zp=28.02):
+def flux2mag(flux, zp=28.3):
     return zp - 2.5*np.log10(flux)
 
 
@@ -29,7 +29,8 @@ def create_sub_cat(cat, max_mag, min_mag, min_hlr, px_scale=0.031):
 
 def assign_clump_offset(gal_hlr,
                         pos_interval,
-                        px_scale):
+                        px_scale,
+                        used_thetas):
 
     ''' Compute clump offset'''
 
@@ -37,10 +38,21 @@ def assign_clump_offset(gal_hlr,
     max_dist = pos_interval[1] * gal_hlr / px_scale
     radius = np.random.uniform(min_dist, max_dist)
     theta = np.random.randint(0, 2*np.pi)
+    # available_theta = False
+    # while not available_theta:
+    #     used = False
+    #     theta = np.random.randint(0, 2*np.pi)
+    #     for used_theta in used_thetas:
+    #         if (used_theta - np.pi/20) < theta < (used_theta + np.pi/20):
+    #             used = True
+    #     if used == False:
+    #         available_theta = True
+    #         used_theta.append(theta)
+
     clump_x = radius * np.cos(theta)
     clump_y = radius * np.sin(theta)
 
-    return int(clump_x), int(clump_y)
+    return int(clump_x), int(clump_y), used_thetas
 
 
 def sim_clump(gal_flux,
@@ -50,28 +62,51 @@ def sim_clump(gal_flux,
               flux_interval,
               flux_tot_max,
               psf,
-              hlr_interval=[0.5, 1]):
+              hlr_interval):
 
     stamp_clump = galsim.ImageF(stamp_size, stamp_size, scale=px_scale)
     clump_hlr = np.random.uniform(hlr_interval[0]*px_scale,
                                   hlr_interval[1]*px_scale)
     clump = galsim.Exponential(clump_hlr)
 
-    if 0.45 * gal_flux - clumps_flux > flux_interval[1]*(gal_flux+clumps_flux):
-        flux_max = flux_interval[1] * gal_flux
-    elif flux_interval[0] * gal_flux < \
-        flux_tot_max * gal_flux - clumps_flux < \
-            flux_interval[1] * (gal_flux+clumps_flux):
-        flux_max = flux_tot_max * gal_flux - clumps_flux
-    else:
+    ''' individual clumps flux must range from 0.06 to 0.3,
+        and the sum of all fluxes must be below 0.45.
+        To do so, we randomly chose between min and max,
+        but have to compute the max each time
+        because of the total sum limit '''
+
+    clump_max = flux_interval[1]*(gal_flux)
+    clump_min = flux_interval[0]*(gal_flux)
+    total_max = flux_tot_max * gal_flux
+    total_remaining = total_max - clumps_flux
+
+    # if the individual clump max is smaller than the total possible max
+    # then the max possible flux for the clump is the inidividual limit
+    if clump_max < total_remaining:
+        flux_max = clump_max
+
+    # if the individual clump max is bigger than the total possible max
+    # and the total possible is bigger than the minimum individual
+    # then the max possible is the total_remaining
+    elif ((clump_max > total_remaining) &
+          (total_remaining > clump_min)):
+        flux_max = total_remaining
+
+    # if the total remaining is lower than the minimum flux, 
+    # then do not simulate the clump (i.e. flux = 0)
+    elif total_remaining < clump_min:
         flux_max = 0
+
+    else:
+        sys.exit('Problem in individual clump flux conditions')
 
     if flux_max == 0:
         clump_flux = 0
     else:
-        clump_flux = np.random.uniform(0.06 * gal_flux, flux_max)
+        clump_flux = np.random.uniform(clump_min, flux_max)
 
-    # clump = galsim.Convolve(clump, psf)
+    # print(flux_max, gal_flux, clump_flux)
+    clump = galsim.Convolve(clump, psf)
     clump = clump.withFlux(clump_flux)
     clump.drawImage(stamp_clump, method='no_pixel')
 
@@ -139,35 +174,36 @@ def param_offset(param, fraction=0.02):
     return param
 
 
-def sim_gal_and_clump(field,
-                      seg_map,
-                      sub_cat,
-                      index,
-                      gal_x, gal_y,
-                      psf,
-                      clump_cat,
-                      gaussian,
-                      px_scale=0.031,
-                      flux_interval=[0.06, 0.3],
-                      flux_tot_max=0.45,
-                      pos_interval=[1, 2],
-                      stamp_size=300):
+def sim_gal_and_clumps(field,
+                       seg_map,
+                       sub_cat,
+                       index,
+                       gal_x, gal_y,
+                       psf,
+                       clump_cat,
+                       gaussian,
+                       flux_interval,
+                       flux_tot_max,
+                       pos_interval,
+                       hlr_interval,
+                       zp,
+                       px_scale=0.031,
+                       stamp_size=300):
 
     ''' Get galaxy parameters'''
 
     gal_n = param_offset(sub_cat[index]['sersic_index'])
-    if gal_n > 6:
-        gal_n = 6
+    if gal_n > 6.2:
+        gal_n = 6.2
     gal_hlr = param_offset(sub_cat[index]['radius'])
     mag = param_offset(sub_cat[index]['nircam_f444w_clear_magnitude'])
-    gal_f = param_offset(mag2flux(mag))
+    gal_f = param_offset(mag2flux(mag, zp))
     gal_q = 1 - sub_cat[index]['ellipticity']
     gal_q = param_offset(gal_q)
 
     ''' initialise stamps'''
     stamp_galaxy = galsim.ImageF(stamp_size, stamp_size, scale=px_scale)
     stamp_g_c = galsim.ImageF(stamp_size*3, stamp_size*3, scale=px_scale)
-    # seg_g = galsim.ImageF(stamp_size, stamp_size, scale=px_scale)
     seg_g_c = galsim.ImageF(stamp_size*3, stamp_size*3, scale=px_scale)
 
     ''' sim galaxy'''
@@ -175,7 +211,7 @@ def sim_gal_and_clump(field,
     galaxy = galaxy.shear(q=gal_q, beta=0*galsim.degrees)
     theta = np.random.uniform(0, 1) * 2 * np.pi * galsim.radians
     galaxy = galaxy.rotate(theta)
-    # galaxy = galsim.Convolve(galaxy, psf)
+    galaxy = galsim.Convolve(galaxy, psf)
     galaxy = galaxy.withFlux(gal_f)
     galaxy.drawImage(stamp_galaxy, method='no_pixel')
 
@@ -187,13 +223,14 @@ def sim_gal_and_clump(field,
         n_clumps_max = 2
     else:
         n_clumps_max = 4
-    n_clumps = np.random.randint(1, n_clumps_max+1)
+    n_clumps = np.random.randint(1, n_clumps_max+1)  # randint is exclusive
 
     galaxy.drawImage(stamp_g_c, method='no_pixel')
 
     tot_flux = gal_f
     clumps_flux = 0
     companions = 1
+    used_thetas = []
     for _ in range(n_clumps):
 
         ''' sim clumps '''
@@ -201,7 +238,8 @@ def sim_gal_and_clump(field,
                                       stamp_size, px_scale,
                                       flux_interval,
                                       flux_tot_max,
-                                      psf)
+                                      psf,
+                                      hlr_interval)
 
         if clump_flux > 0:
             # print(f'simulated {companions} clumps')
@@ -209,8 +247,9 @@ def sim_gal_and_clump(field,
             clumps_flux += clump_flux
 
             ''' get offset'''
-            clump_x, clump_y = assign_clump_offset(gal_hlr, pos_interval,
-                                                   px_scale)
+            (clump_x, clump_y,
+             used_thetas) = assign_clump_offset(gal_hlr, pos_interval,
+                                                px_scale, used_thetas)
 
             ''' Update clump catalogue'''
             clump_cat['gal_ID'].append(sub_cat['index'][index])
@@ -228,29 +267,24 @@ def sim_gal_and_clump(field,
             companions += 1
 
             ''' Add galaxy and clump'''
-            x_start, y_start = stamp_size+clump_x, stamp_size+clump_y   # stamp_size * 3 // 2 + clump_x - stamp_size // 2
+            # stamp_size * 3 // 2 + clump_x - stamp_size // 2 =
+            #  stamp_size + clump_x
+            x_start, y_start = stamp_size+clump_x, stamp_size+clump_y
             x_end, y_end = 2*stamp_size+clump_x, 2*stamp_size+clump_y
 
-            # print(clump.array.shape, stamp_g_c.array.shape)
-            # print(x_end-x_start, x_start, x_end, y_start, y_end)
             stamp_g_c.array[x_start:x_end, y_start:y_end] += clump.array
-            seg_g_c.array[x_start:x_end, y_start:y_end] += gaussian
+            sub = seg_g_c.array[x_start:x_end, y_start:y_end]
+            seg_g_c.array[x_start:x_end,
+                          y_start:y_end] = np.maximum(sub, gaussian)
 
     ''' Add the clumpy galaxy to the field'''
 
-    clumpy_galaxy_object = galsim.Image(np.ascontiguousarray(stamp_g_c.array.astype(np.float64)),
-                                        scale=px_scale)
-
-    clumpy_galaxy_object = galsim.InterpolatedImage(clumpy_galaxy_object)
-    clumpy_galaxy_object = galsim.Convolve(clumpy_galaxy_object, psf)
-    clumpy_galaxy_object = clumpy_galaxy_object.withFlux(gal_f)
-
-    stamp_g_c = galsim.ImageF(stamp_size*3, stamp_size*3, scale=px_scale)
-    clumpy_galaxy_object.drawImage(stamp_g_c, method='no_pixel')
     x_start, y_start = gal_x - stamp_size * 3 // 2, gal_y - stamp_size * 3 // 2
     x_end, y_end = gal_x + stamp_size * 3 // 2, gal_y + stamp_size * 3 // 2
     field[x_start:x_end, y_start:y_end] += stamp_g_c.array
-    seg_map[x_start:x_end, y_start:y_end, 0] += seg_g_c.array
+    seg_map[x_start:x_end, y_start:y_end, 0] += seg_g_c.array  # clumps segmap
+
+    # galaxy segmap
     seg_map[gal_x - stamp_size // 2:gal_x + stamp_size // 2,
             gal_y - stamp_size // 2:gal_y + stamp_size // 2, 1] += gaussian
 
@@ -260,7 +294,13 @@ def sim_gal_and_clump(field,
 def add_clumps_to_field(original_field, clumpy_field, cat,
                         busy_Ras, busy_Decs,
                         wcs, psf, n_gals,
-                        mag_max, mag_min, hlr_min,
+                        mag_max, mag_min,
+                        hlr_min,
+                        flux_interval,
+                        flux_tot_max,
+                        pos_interval,
+                        hlr_interval,
+                        zp=28.2,
                         sigma_segmap=8,
                         px_scale=0.031,
                         show=False):
@@ -270,8 +310,6 @@ def add_clumps_to_field(original_field, clumpy_field, cat,
     n_gals = len(RAs)
     sub_cat = create_sub_cat(cat, mag_max, mag_min, hlr_min)
 
-    # if len(sub_cat) < len(RAs):
-        # sub_cat = vstack(sub_cat, sub_cat)
     border_galaxies = 0
     clump_cat = {'ID': [],
                  'gal_ID': [],
@@ -298,33 +336,39 @@ def add_clumps_to_field(original_field, clumpy_field, cat,
         try:
             (cw_clumps, seg_map,
                 stamp_galaxy, stamp_g_c,
-                clump_cat) = sim_gal_and_clump(clumpy_field,
-                                               seg_map,
-                                               sub_cat,
-                                               index,
-                                               gal_x, gal_y,
-                                               psf,
-                                               clump_cat,
-                                               gaussian,
-                                               stamp_size=stamp_size)
+                clump_cat) = sim_gal_and_clumps(clumpy_field,
+                                                seg_map,
+                                                sub_cat,
+                                                index,
+                                                gal_x, gal_y,
+                                                psf,
+                                                clump_cat,
+                                                gaussian,
+                                                flux_interval,
+                                                flux_tot_max,
+                                                pos_interval,
+                                                hlr_interval,
+                                                zp,
+                                                stamp_size=stamp_size)
 
             if (i < show):
                 gal_hlr = sub_cat[index]['radius']
-                gal_f = sub_cat[index]['nircam_f444w_clear_magnitude']
+                gal_f = mag2flux(sub_cat[index]['nircam_f444w_clear_magnitude'],
+                                 zp)
                 n_clumps = clump_cat['n_clumps'][first_clump_id]
                 fig = inspect_clumps_creation(original_field,
-                                                clumpy_field,
-                                                stamp_galaxy,
-                                                stamp_g_c,
-                                                gal_x, gal_y,
-                                                gal_hlr, n_clumps,
-                                                clump_cat,
-                                                first_clump_id,
-                                                gal_f,
-                                                px_scale,
-                                                seg_map)
+                                              clumpy_field,
+                                              stamp_galaxy,
+                                              stamp_g_c,
+                                              gal_x, gal_y,
+                                              gal_hlr, n_clumps,
+                                              clump_cat,
+                                              first_clump_id,
+                                              gal_f,
+                                              px_scale,
+                                              seg_map)
 
-                fig.savefig(f'plots/inspect_clumps_simu_{i}')
+                fig.savefig(f'plots/inspect_clumps_simu_{i}_{zp}.png')
                 first_clump_id += n_clumps
 
         except ValueError:
@@ -462,6 +506,7 @@ def generate_2d_gaussian(stamp_size, sigma):
     pdf = (pdf-np.min(pdf)) / (np.max(pdf)-np.min(pdf))
     return pdf
 
+
 # psf_scipy = fits.open('raw/NIRCam_f444w.fits')[0].data
     # gc_array = stamp_g_c.array
     # print(gc_array)
@@ -476,7 +521,7 @@ def generate_2d_gaussian(stamp_size, sigma):
     # hdulist.writeto(temp_fits_file,
     #                 overwrite=True)
     # clumpy_galaxy_object = galsim.Image(np.ascontiguousarray(stamp_g_c.array.astype(np.float64)),
-                                        # scale=px_scale)
+                        # scale=px_scale)
 
     # clumpy_galaxy_object = galsim.InterpolatedImage(clumpy_galaxy_object)
     # clumpy_galaxy_object = galsim.InterpolatedImage(temp_fits_file)

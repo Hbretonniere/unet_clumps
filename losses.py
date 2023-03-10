@@ -5,8 +5,8 @@ import gin
 def MSE_loss(gt, pred, mask):
 
     # (X- X')^2
-    # loss = tf.math.square(tf.subtract(gt, pred))
-    loss = tf.subtract(gt, pred)
+    loss = tf.math.square(tf.subtract(gt, pred))
+    # loss = tf.subtract(gt, pred)
     loss = tf.multiply(mask, loss)
     loss = tf.divide(loss, loss.shape[1]*loss.shape[2])
 
@@ -19,7 +19,16 @@ def weighted_MSE_with_gals(gt, pred, bckg_weight, galaxy_weight):
 
     ''' ##### Clumps loss  #####'''
     ''' ## bckg loss ##'''
+    # import numpy as np
 
+    # # print(np.max(np.sum([pred[0, :, :, 0], pred[0, :, :, 1]])))
+    # for i in range(128):
+    #     for j in range(128):
+    #         print(pred[0, i, j, 0], pred[0, i, j, 1],
+    #               np.sum([pred[0, i, j, 0], pred[0, i, j, 1]]))
+
+    # import sys
+    # sys.exit('')
     c_bckg_mask = tf.where(gt[..., 0] == 0, 1., 0.)
     c_bckg_loss = MSE_loss(gt[..., 0], pred[..., 0], c_bckg_mask)
 

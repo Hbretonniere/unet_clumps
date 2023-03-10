@@ -31,7 +31,8 @@ def find_closest_point(coords, cat):
     return match_index[0], closestx, closesty
 
 
-def find_clumps(img, window_size):
+def find_peaks(img, threshold, window_size=5):
+    img = np.where(img < threshold, 0, img)
     coordinates = peak_local_max(img, min_distance=window_size)
     return coordinates
 
@@ -59,9 +60,9 @@ def compute_class(clump_coords, clump_cat_x_y, galaxy_cat_x_y, margin):
     if dist_c > margin:
         return 'FP'
 
-def compute_completeness_purity(pred_cat, galaxy_cat, clump_cat):
-    galaxy_cat_x_y = np.zeros((len(galaxy_cat), 2))
-    galaxy_cat_x_y[:, 0] = galaxy_cat_x_y['X']
-    galaxy_cat_x_y[:, 1] = galaxy_cat_x_y['Y']
-    for i in range(len(pred_cat)):
+# def compute_completeness_purity(pred_cat, galaxy_cat, clump_cat):
+#     galaxy_cat_x_y = np.zeros((len(galaxy_cat), 2))
+#     galaxy_cat_x_y[:, 0] = galaxy_cat_x_y['X']
+#     galaxy_cat_x_y[:, 1] = galaxy_cat_x_y['Y']
+#     for i in range(len(pred_cat)):
         
